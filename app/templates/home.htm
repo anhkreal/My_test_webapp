@@ -1,0 +1,540 @@
+{% extends "base.htm" %}
+{% load static %}
+{% block main-content %}
+    <div class="camera-feed">
+        <!-- Video element to display camera feed -->
+        <div class = "mt-2 d-flex ml-5">
+            <video id="camera" controls autoplay muted preload="auto">
+                <source src="{% static 'app/images/0_HuongDanCaiDat.mp4' %}" type="video/mp4">
+                Your browser does not support the video tag.
+            </video>
+            <!-- Khung hiển thị hình ảnh -->
+            <div class="image-container ml-5">
+                <h5 id="captured-image-title">Hình ảnh chụp:</h5>
+                <img id="captured-image" src="{% static 'app/images/camera-feed.png' %}" alt="Chưa có hình ảnh" class="img-thumbnail border border-primary rounded shadow p-2" style="width: 400px;">
+            </div>
+        </div>
+        <div class="mt-3">
+            <button id="capture-btn" class="btn btn-primary" onClick="chupAnh()">Chụp ảnh</button>
+            <button id="record-btn" class="btn btn-danger" onClick="ghiHinh()">Ghi hình</button>
+            <canvas id="snapshot" class="d-none"></canvas>
+            <!-- Chọn ngày và Timeline -->
+            <h4>Chọn ngày và xem cây thời gian</h4>
+            <div class="form-group d-flex align-items-center">
+                <label for="selected-date" class="mr-2">Chọn ngày:</label>
+                <input type="date" id="selected-date" class="form-control w-auto mr-2" onchange="loadTimeline()">
+            </div>
+            <div id="timeline-container" class="mt-3">
+                <!-- Timeline sẽ được hiển thị ở đây -->
+                <h5>Không có dữ liệu cho ngày này.</h5>
+            </div>
+            <!-- Thêm Nút Điều Khiển ở đây -->
+            <div class="navigation-buttons mt-3 text-center">
+                <button id="prev-button" class="btn btn-outline-primary mr-2" style="display : none;" onclick="navigateEvent('prev')" disabled>Trước đó</button>
+                <button id="next-button" class="btn btn-outline-primary" style="display : none;" onclick="navigateEvent('next')" disabled>Tiếp theo</button>
+            </div>
+        </div>
+    </div>
+    <script>
+    // sự kiện nhấn nút Chụp ảnh
+        function chupAnh() {
+            let video = document.getElementById('camera');
+            let canvas = document.getElementById('snapshot');
+            let context = canvas.getContext('2d');
+
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            // Chuyển đổi canvas thành URL ảnh
+            let imageUrl = canvas.toDataURL('image/png');
+
+            // Hiển thị ảnh trên <img> với id "captured-image"
+            let capturedImage = document.getElementById('captured-image');
+            capturedImage.src = imageUrl;
+
+            let capturedImageTitle = document.getElementById('captured-image-title');
+            capturedImageTitle.innerText = "Hình ảnh chụp:";
+
+            // Tạo link tải ảnh xuống
+            let downloadLink = document.createElement('a');
+            downloadLink.href = imageUrl;
+            downloadLink.download = 'snapshot.png';
+            downloadLink.click();
+        }
+    </script>
+    <script>
+        let mediaRecorder;
+        let chunks = [];
+        let recording = false;  // Giả sử giá trị này được lưu trữ bên ngoài hàm
+        function ghiHinh() {
+            let video = document.getElementById('camera');
+            
+            
+            if (!recording) {
+                if ('captureStream' in video) {
+                    let stream = video.captureStream();
+                    mediaRecorder = new MediaRecorder(stream);
+                } else {
+                    alert('captureStream() không được hỗ trợ trên trình duyệt này');
+                    return;
+                }
+
+                mediaRecorder.ondataavailable = function(event) {
+                    chunks.push(event.data);
+                };
+
+                mediaRecorder.onstop = function() {
+                    let blob = new Blob(chunks, { type: 'video/webm' });
+                    let downloadLink = document.createElement('a');
+                    downloadLink.href = URL.createObjectURL(blob);
+                    downloadLink.download = 'recorded_video.webm';
+                    downloadLink.click();
+                    chunks = [];
+                };
+
+                mediaRecorder.onerror = function(event) {
+                    alert('Lỗi trong quá trình ghi: ' + event.error);
+                };
+
+                mediaRecorder.start();
+                document.getElementById('record-btn').innerText = 'Dừng ghi';
+                recording = true;
+            } else {
+                mediaRecorder.stop();
+                document.getElementById('record-btn').innerText = 'Ghi hình';
+                recording = false;
+            }
+        }
+    </script>
+
+    <script>
+        let intervalId;
+
+        function startLayDuLieu() {
+            intervalId = setInterval(captureImage, 10000);
+        }
+
+        function stopLayDuLieu() {
+            clearInterval(intervalId);
+            console.log("Dừng lấy dữ liệu.");
+        }
+        // yêu cầu quyền truy cập camera
+        navigator.mediaDevices.getUserMedia({ video: true })
+            .then(stream => {
+                let video = document.getElementById('camera');
+                video.srcObject = stream;
+            })
+            .catch(err => {
+                console.error("Lỗi khi truy cập camera:", err);
+            });
+
+        // Kiểm tra người dùng có đăng nhập hay không
+        {% if request.user.is_authenticated %}
+            // Người dùng đã đăng nhập, bắt đầu gọi layDuLieu
+            captureImage()
+            startLayDuLieu();
+        {% else %}
+            // Người dùng chưa đăng nhập, không làm gì
+            console.log("Người dùng chưa đăng nhập.");
+        {% endif %}
+
+        function captureImage() {
+            let video = document.getElementById('camera');
+            let canvas = document.getElementById('snapshot');
+            let context = canvas.getContext('2d');
+            canvas.width = video.videoWidth;
+            canvas.height = video.videoHeight;
+            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+            let imageData = canvas.toDataURL('image/png');
+
+            // Gửi dữ liệu hình ảnh lên server
+            fetch('/upload_image/', { // Thay đổi URL nếu cần
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-CSRFToken': getCookie('csrftoken') // Để xử lý CSRF trong Django
+                },
+                body: JSON.stringify({ image: imageData })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    console.log(`Đã lưu ảnh: ${data.file_name}`);
+                } else {
+                    console.error('Lỗi khi lưu ảnh:', data.error);
+                }
+            })
+            .catch(error => {
+                console.error('Lỗi mạng:', error);
+            });
+        }
+
+        // Hàm để lấy CSRF token từ cookie
+        function getCookie(name) {
+            let cookieValue = null;
+            if (document.cookie && document.cookie !== '') {
+                let cookies = document.cookie.split(';');
+                for (let i = 0; i < cookies.length; i++) {
+                    let cookie = cookies[i].trim();
+                    // Kiểm tra nếu cookie bắt đầu bằng tên
+                    if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                        cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                        break;
+                    }
+                }
+            }
+            return cookieValue;
+        }
+
+    </script>
+    <!-- Mẫu Timeline: Timeline Tượng trưng -->
+    <script>
+
+        let eventsList = []; // Danh sách các sự kiện
+        let currentEventIndex = -1; // Chỉ số của sự kiện hiện tại (-1 nghĩa là chưa chọn)
+
+        /**
+        * Tạo timeline tượng trưng với các điểm màu xanh tại các thời gian có sự kiện.
+        * Các đoạn màu xám biểu thị không có dữ liệu.
+        * @param {Array} events - Mảng các đối tượng sự kiện với các thuộc tính time và event.
+        * @returns {HTMLElement} - Phần tử DOM của timeline.
+        */
+        function generateSymbolicTimeline(events) {
+
+            prevButton = document.getElementById('prev-button');
+            nextButton = document.getElementById('next-button');
+            prevButton.style.display = 'none';
+            nextButton.style.display = 'none';
+            // Cập nhật danh sách sự kiện
+            eventsList = events;
+            currentEventIndex = -1; // Reset khi tạo timeline mới
+
+            // Định nghĩa thời gian bắt đầu và kết thúc của timeline (00:00:00 đến 23:59:59)
+            const timelineStart = 0; // phút
+            const timelineEnd = 24 * 60; // 1440 phút
+
+            // Chuyển đổi thời gian sự kiện thành phút và giây
+            const eventTimes = events.map(event => {
+                const [hours, minutes, seconds] = event.time.split(':').map(Number);
+                return hours * 60 + minutes + seconds / 60; // Tổng số phút với phần giây được chuyển đổi thành phút
+            }).sort((a, b) => a - b);
+
+            // Định nghĩa khoảng thời gian mỗi slot (ví dụ: mỗi giờ)
+            const slotDuration = 60; // phút
+            const numberOfSlots = timelineEnd / slotDuration; // 24 slot
+
+            // Tạo container cho timeline
+            const timelineDiv = document.createElement('div');
+            timelineDiv.className = 'symbolic-timeline';
+
+            for (let i = 0; i < numberOfSlots; i++) {
+                const slotStart = i * slotDuration;
+                const slotEnd = slotStart + slotDuration;
+
+                // Tạo phần tử slot
+                const slot = document.createElement('div');
+                slot.className = 'timeline-slot';
+                slot.style.backgroundColor = '#d3d3d3'; // Màu xám mặc định
+                slot.title = 'Không có dữ liệu';
+
+                // Kiểm tra các sự kiện trong slot này
+                const eventsInSlot = events.filter(event => {
+                    const [hours, minutes, seconds] = event.time.split(':').map(Number);
+                    const timeInMinutes = hours * 60 + minutes + seconds / 60;
+                    return timeInMinutes >= slotStart && timeInMinutes < slotEnd;
+                });
+
+                if (eventsInSlot.length > 0) {
+                    // Giữ màu xám cho slot
+
+                    // Thêm điểm màu xanh cho mỗi sự kiện trong slot
+                    eventsInSlot.forEach(event => {
+                        prevButton.style.display = 'inline-block';
+                        nextButton.style.display = 'inline-block';
+
+
+                        const eventDot = document.createElement('div');
+                        eventDot.className = 'event-dot';
+                        eventDot.style.left = calculatePosition(event.time, slotStart, slotDuration) + '%';
+                        eventDot.title = `${event.time}: ${event.event}`;
+                        eventDot.setAttribute('data-toggle', 'tooltip');
+                        eventDot.setAttribute('data-placement', 'top');
+                        eventDot.setAttribute('data-html', 'true'); // Cho phép HTML trong tooltip
+                        eventDot.setAttribute('data-original-title', `<strong>${event.time}</strong>`);
+                        
+                        // Đảm bảo event-dot nằm trên slot
+                        eventDot.style.zIndex = '10'; // Đặt z-index cao hơn slot
+
+                        eventDot.addEventListener('click', function() {
+                            const capturedImage = document.getElementById('captured-image');
+                            const imageUrl = event.image_url;
+                            fetch(`/snapshot/?url=${imageUrl}`)
+                                .then(response => {
+                                    if (!response.ok) {
+                                        throw new Error('Không thể tải ảnh');
+                                    }
+                                    return response.blob();  // Trả về dữ liệu ảnh dưới dạng blob
+                                })
+                                .then(blob => {
+                                    // Tạo một URL đối tượng từ blob để hiển thị ảnh
+                                    const imageObjectUrl = URL.createObjectURL(blob);
+                                    
+                                    // Gán URL ảnh vào thuộc tính src của capturedImage
+                                    const capturedImage = document.getElementById('captured-image');  // Giả sử bạn có một phần tử ảnh
+                                    capturedImage.src = imageObjectUrl;
+                                })
+                                .catch(error => {
+                                    console.error('Lỗi khi tải ảnh:', error);
+                                });
+                            capturedImage.alt = event.event; // Cập nhật alt nếu cần
+                            let capturedImageTitle = document.getElementById('captured-image-title');
+                            capturedImageTitle.innerText = "Hình ảnh " + event.time + " " + event.date + ":";
+                            // Cập nhật chỉ số sự kiện hiện tại
+                            currentEventIndex = eventsList.indexOf(event);
+
+                            // Đánh dấu sự kiện được chọn
+                            updateSelectedEvent();
+                        });
+
+                        slot.appendChild(eventDot);
+                    });
+                }
+
+                timelineDiv.appendChild(slot);
+            }
+
+            // Khởi tạo Bootstrap tooltips nếu đang sử dụng Bootstrap
+            $(function () {
+                $('[data-toggle="tooltip"]').tooltip();
+            });
+
+            return timelineDiv;
+        }
+
+        /**
+        * Tính toán vị trí phần trăm từ thời gian sự kiện trong slot.
+        * @param {String} time - Thời gian sự kiện (HH:MM:SS).
+        * @param {Number} slotStart - Thời gian bắt đầu của slot (tính bằng phút).
+        * @param {Number} slotDuration - Thời gian của slot (tính bằng phút).
+        * @returns {Number} - Vị trí phần trăm từ bên trái.
+        */
+        function calculatePosition(time, slotStart, slotDuration) {
+            const [hours, minutes, seconds] = time.split(':').map(Number);
+            const timeInMinutes = hours * 60 + minutes + seconds / 60;
+            const minutesIntoSlot = timeInMinutes - slotStart;
+            return (minutesIntoSlot / slotDuration) * 100;
+        }
+
+        function updateSelectedEvent() {
+            // Loại bỏ lớp 'selected' từ tất cả các event-dot
+            document.querySelectorAll('.event-dot').forEach(dot => {
+                dot.classList.remove('selected');
+            });
+
+            if (currentEventIndex >= 0 && currentEventIndex < eventsList.length) {
+                const selectedEvent = eventsList[currentEventIndex];
+                // Tìm tất cả các event-dot và tìm event-dot tương ứng
+                const eventDots = document.querySelectorAll('.event-dot');
+                eventDots.forEach(dot => {
+                    if (dot.title === `${selectedEvent.time}: ${selectedEvent.event}`) {
+                        dot.classList.add('selected');
+                    }
+                });
+            }
+
+            // Cập nhật nút Next và Previous
+            updateNavigationButtons();
+        }
+
+        function updateNavigationButtons() {
+            const prevButton = document.getElementById('prev-button');
+            const nextButton = document.getElementById('next-button');
+
+            if (currentEventIndex <= 0) {
+                prevButton.disabled = true;
+            } else {
+                prevButton.disabled = false;
+            }
+
+            if (currentEventIndex >= eventsList.length - 1) {
+                nextButton.disabled = true;
+            } else {
+                nextButton.disabled = false;
+            }
+        }
+
+        function navigateEvent(direction) {
+            if (direction === 'next') {
+                if (currentEventIndex < eventsList.length - 1) {
+                    currentEventIndex++;
+                    const event = eventsList[currentEventIndex];
+                    const capturedImage = document.getElementById('captured-image');
+                    const imageUrl = event.image_url;
+                    fetch(`/snapshot/?url=${imageUrl}`)
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error('Không thể tải ảnh');
+                            }
+                            return response.blob();  // Trả về dữ liệu ảnh dưới dạng blob
+                        })
+                        .then(blob => {
+                            // Tạo một URL đối tượng từ blob để hiển thị ảnh
+                            const imageObjectUrl = URL.createObjectURL(blob);
+                            
+                            // Gán URL ảnh vào thuộc tính src của capturedImage
+                            const capturedImage = document.getElementById('captured-image');  // Giả sử bạn có một phần tử ảnh
+                            capturedImage.src = imageObjectUrl;
+                        })
+                        .catch(error => {
+                            console.error('Lỗi khi tải ảnh:', error);
+                        });
+                    capturedImage.alt = event.event;
+                    let capturedImageTitle = document.getElementById('captured-image-title');
+                    capturedImageTitle.innerText = "Hình ảnh " + event.time + " " + event.date + ":";
+                    updateSelectedEvent();
+                }
+            } else if (direction === 'prev') {
+                if (currentEventIndex > 0) {
+                    currentEventIndex--;
+                    const event = eventsList[currentEventIndex];
+                    const capturedImage = document.getElementById('captured-image');
+                    const imageUrl = event.image_url;
+                    fetch(`/snapshot/?url=${imageUrl}`)
+                        .then(response => {
+                            if (!response.ok) {
+                                throw new Error('Không thể tải ảnh');
+                            }
+                            return response.blob();  // Trả về dữ liệu ảnh dưới dạng blob
+                        })
+                        .then(blob => {
+                            // Tạo một URL đối tượng từ blob để hiển thị ảnh
+                            const imageObjectUrl = URL.createObjectURL(blob);
+                            
+                            // Gán URL ảnh vào thuộc tính src của capturedImage
+                            const capturedImage = document.getElementById('captured-image');  // Giả sử bạn có một phần tử ảnh
+                            capturedImage.src = imageObjectUrl;
+                        })
+                        .catch(error => {
+                            console.error('Lỗi khi tải ảnh:', error);
+                        });
+                    capturedImage.alt = event.event;
+                    let capturedImageTitle = document.getElementById('captured-image-title');
+                    capturedImageTitle.innerText = "Hình ảnh " + event.time + " " + event.date + ":";
+                    updateSelectedEvent();
+                }
+            }
+        }
+
+        document.addEventListener('keydown', function(event) {
+            if (event.key === 'ArrowRight') {
+                navigateEvent('next');
+            } else if (event.key === 'ArrowLeft') {
+                navigateEvent('prev');
+            }
+        });
+
+
+        function loadTimeline() {
+            // ẩn 2 nút điều hướng event-dot
+            prevButton = document.getElementById('prev-button');
+            nextButton = document.getElementById('next-button');
+            prevButton.style.display = 'none';
+            nextButton.style.display = 'none';
+
+            const selectedDate = document.getElementById('selected-date').value;
+            const timelineContainer = document.getElementById('timeline-container');
+
+            // Xóa nội dung trước đó
+            timelineContainer.innerHTML = '';
+
+            if (!selectedDate) {
+                timelineContainer.innerHTML = '<h5>Vui lòng chọn một ngày.</h5>';
+                return;
+            }
+
+            // Lấy dữ liệu timeline từ backend
+            fetch(`/get-timeline-data/?date=${selectedDate}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.events && data.events.length > 0) {
+                        // Tạo timeline tượng trưng
+                        const timeline = generateSymbolicTimeline(data.events);
+                        timelineContainer.appendChild(timeline);
+                    } else {
+                        // Hiển thị thông báo nếu không có dữ liệu
+                        timelineContainer.innerHTML = '<h5>Không có dữ liệu cho ngày này.</h5>';
+                    }
+                })
+                .catch(error => {
+                    console.error('Lỗi khi lấy dữ liệu timeline:', error);
+                    timelineContainer.innerHTML = '<h5>Đã xảy ra lỗi khi tải dữ liệu.</h5>';
+                });
+        }
+
+
+    </script>
+
+    <!-- Tùy chọn: CSS cho Timeline Tượng trưng -->
+    <style>
+        .event-dot.selected {
+            background-color: #28a745; /* Màu xanh lá cây */
+        }
+
+        .symbolic-timeline {
+            position: relative;
+            display: flex;
+            border: 1px solid #ccc;
+            height: 10px;
+            width: 100%;
+            max-width: 800px;
+            margin: 20px auto;
+            background-color: #f8f9fa;
+        }
+
+        .timeline-slot {
+            flex: 1;
+            border-right: 1px solid #fff;
+            position: relative; /* Để các event-dot được định vị chính xác bên trong */
+            overflow: hidden; /* Đảm bảo các điểm không bị tràn ra ngoài slot */
+        }
+
+        .timeline-slot:last-child {
+            border-right: none;
+        }
+
+        .event-dot {
+            position: absolute;
+            top: 50%;
+            transform: translate(-50%, -50%);
+            width: 12px;
+            height: 12px;
+            background-color: #007bff;
+            border: 2px solid #fff; /* Đường viền trắng để điểm nổi bật */
+            border-radius: 50%;
+            cursor: pointer;
+            z-index: 2; /* Đảm bảo nằm trên slot */
+            box-shadow: 0 0 5px rgba(0, 123, 255, 0.5); /* Hiệu ứng đổ bóng nhẹ */
+        }
+
+        .event-dot:hover {
+            background-color: #0056b3;
+            box-shadow: 0 0 8px rgba(0, 86, 179, 0.7); /* Tăng hiệu ứng đổ bóng khi hover */
+        }
+
+        /* Điều chỉnh responsive */
+        @media (max-width: 768px) {
+            .symbolic-timeline {
+                max-width: 100%;
+                height: 40px;
+            }
+            .event-dot {
+                width: 10px;
+                height: 10px;
+            }
+        }
+
+    </style>
+{% endblock main-content %}
